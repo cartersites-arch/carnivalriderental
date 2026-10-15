@@ -8,7 +8,7 @@ Managed carnival ride rental marketplace. **Read [PROJECT_BRIEF.md](PROJECT_BRIE
 
 ## Run it locally
 
-Requires Node 22.5+ (uses the built-in `node:sqlite`).
+Requires Node 22.12+ (uses the built-in `node:sqlite`).
 
 ```bash
 npm install
@@ -29,6 +29,14 @@ npm run typecheck
 npm test                         # unit + acceptance tests (vitest)
 npm run build && npm run test:e2e   # browser end-to-end on a production build (needs Playwright/Chromium)
 ```
+
+## Dependency security
+
+Run `npm ci` to install the reviewed lockfile, then `npm audit` to check for new advisories.
+
+Next 15 currently pins an older PostCSS release, so the scoped `overrides.next.postcss` entry uses our patched PostCSS 8 dependency. Keep this override until Next ships a safe version itself. Vitest 4 removes the vulnerable Tinypool dependency; Tailwind 4 removes the vulnerable v3 parser and glob dependency chain.
+
+Tailwind 4 requires Safari 16.4+, Chrome 111+, or Firefox 128+. The existing theme is loaded explicitly from `tailwind.config.ts`.
 
 ## What works in session one
 

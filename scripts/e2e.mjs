@@ -104,6 +104,18 @@ try {
   page.on("pageerror", (e) => pageErrors.push(e.message));
 
   await page.goto(BASE + "/rides/ferris-wheel-rental");
+  const theme = await page.evaluate(() => {
+    const body = getComputedStyle(document.body);
+    const button = getComputedStyle(document.querySelector(".btn-primary"));
+    return { background: body.backgroundColor, color: body.color, buttonBackground: button.backgroundColor, buttonRadius: button.borderRadius };
+  });
+  check("custom theme survives dependency upgrades", theme.background === "rgb(247, 243, 234)" && theme.color === "rgb(11, 21, 48)");
+  check("primary action keeps its styling", theme.buttonBackground === "rgb(11, 21, 48)" && theme.buttonRadius === "6px");
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    check(`ride page fits a ${width}px viewport`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  }
+
   await page.getByRole("link", { name: "Request this ride" }).click();
   await page.waitForURL(/\/request\?ride=ferris-wheel-rental/);
 
