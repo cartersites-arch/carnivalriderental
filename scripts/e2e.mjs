@@ -103,6 +103,15 @@ try {
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
 
+  await page.goto(BASE + "/request?state=TXextra");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("state from a link is preserved rather than truncated", await page.getByLabel("State").inputValue() === "TXEXTRA");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("invalid state from a link must be corrected", await page.getByText("Enter a valid two-letter US state code or DC.", { exact: true }).isVisible());
+  await page.goto(BASE + "/request?state=%20tx%20");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("valid state from a link accepts case and surrounding spaces", await page.getByLabel("State").inputValue() === "TX");
+  await page.evaluate(() => sessionStorage.clear());
   await page.goto(BASE + "/rides/ferris-wheel-rental");
   const theme = await page.evaluate(() => {
     const body = getComputedStyle(document.body);
@@ -267,6 +276,7 @@ try {
   await page.getByRole("button", { name: "Accept quote" }).click();
   await page.getByText("Accepted quote").waitFor();
   check("accepted quote is labelled as accepted", await page.getByText("Accepted quote").isVisible());
+  check("accepting a quote does not promise confirmation", await page.getByText(/Your booking is not confirmed yet/).isVisible());
 
   // Internal: commit supplier, then confirmation is refused.
   await team.reload();
@@ -282,6 +292,7 @@ try {
   const finalH1 = await page.locator("h1").innerText();
   check("customer status reflects operator committed, not booked", /Operator committed/.test(finalH1) && !/Booking confirmed/.test(finalH1), finalH1);
   check("payment status stays separate (no payment taken)", await page.getByText("No payment taken").isVisible());
+  check("operator commitment does not promise confirmation", await page.getByText(/Your booking is not confirmed yet/).isVisible());
   await team.getByLabel("Supplier status").selectOption("contacted");
   await team.getByLabel("Supplier status").locator("xpath=..").getByRole("button", { name: "Set" }).click();
   await team.getByText("Withdraw this supplier's event commitments before removing verification.").waitFor();
@@ -300,6 +311,12 @@ try {
   check("the accepted customer quote is preserved after operator withdrawal", await page.getByText("Accepted quote", { exact: true }).isVisible());
   await team.reload();
   check("the team is prompted to source a replacement", await team.locator('input[name="nextAction"]').inputValue() === "Secure a replacement operator");
+
+  await team.locator("form").filter({ has: team.getByRole("button", { name: "Update status" }) }).locator("select[name=to]").selectOption("cancelled");
+  await team.getByRole("button", { name: "Update status" }).click();
+  await team.getByText("No manual changes available from here.").waitFor();
+  await page.reload();
+  check("closed request does not promise a future confirmation", await page.locator("h1").innerText() === "Request closed" && await page.getByText(/Your booking is not confirmed yet/).count() === 0);
 
   check("no browser page errors", pageErrors.length === 0, pageErrors.join(" | "));
   await browser.close();

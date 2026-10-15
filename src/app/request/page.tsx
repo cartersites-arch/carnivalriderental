@@ -32,7 +32,7 @@ export default async function RequestPage({
       </p>
       <RequestForm
         rides={rides}
-        initial={{ rideSlug: ride, city: sp.city ?? "", state: (sp.state ?? "").slice(0, 2).toUpperCase(), dateStart: sp.date ?? "" }}
+        initial={{ rideSlug: ride, city: sp.city ?? "", state: (sp.state ?? "").trim().toUpperCase(), dateStart: sp.date ?? "" }}
         browseHref={paths.rides()}
       />
     </main>

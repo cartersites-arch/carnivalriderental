@@ -109,10 +109,10 @@ export default async function RequestStatus({ params, searchParams }: Props) {
                 {r.quote.status === "sent" && r.fulfillment.status === "quote_sent" ? (
                   <AcceptQuote reference={r.reference} token={t!} quoteId={r.quote.id} />
                 ) : null}
-                {r.quote.status === "accepted" && r.fulfillment.status !== "confirmed" ? (
+                {r.quote.status === "accepted" && r.fulfillment.status !== "confirmed" && !cancelled ? (
                   <p className="mt-4 rounded-md bg-sky-50 p-3 text-sm text-sky-900">
-                    You accepted this quote. Your booking is confirmed only once the operator commits — we&apos;ll update this
-                    page.
+                    You accepted this quote. Your booking is not confirmed yet. We&apos;ll update this page when all booking
+                    requirements are met and your booking is confirmed.
                   </p>
                 ) : null}
               </div>
