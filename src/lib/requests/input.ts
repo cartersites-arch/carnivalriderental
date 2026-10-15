@@ -1,5 +1,6 @@
 // Validation for the customer's event brief. Technical site questions accept
 // "not_sure" so nobody has to invent a measurement to finish the form.
+import { validateSchedule } from "./schedule";
 
 export const NOT_SURE = "not_sure";
 
@@ -38,7 +39,6 @@ export type EventRequestInput = {
 
 export type FieldErrors = Partial<Record<keyof EventRequestInput, string>>;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUIDISH = /^[A-Za-z0-9_-]{16,80}$/;
 
@@ -68,19 +68,13 @@ export function validateEventRequest(
   if (!rideFlexibility) errors.rideFlexibility = "Tell us how flexible you are on the ride.";
   if (!rideSlug && rideFlexibility === "this_ride_only") errors.rideFlexibility = "Pick a ride, or let us suggest one.";
 
-  const dateStart = str(b.dateStart, 10);
-  if (!dateStart || !ISO_DATE.test(dateStart)) errors.dateStart = "Enter your event date.";
-  else if (dateStart < opts.today) errors.dateStart = "The event date is in the past.";
-  const dateEnd = str(b.dateEnd, 10);
-  if (dateEnd && (!ISO_DATE.test(dateEnd) || (dateStart && dateEnd < dateStart)))
-    errors.dateEnd = "The end date must be on or after the start date.";
+  const { dateStart, dateEnd, state, errors: scheduleErrors } = validateSchedule(b, opts.today);
+  Object.assign(errors, scheduleErrors);
   const dateFlexibility = oneOf(b.dateFlexibility, DATE_FLEXIBILITY);
   if (!dateFlexibility) errors.dateFlexibility = "Tell us how flexible your dates are.";
 
   const city = str(b.city, 80);
   if (!city) errors.city = "Enter the event city.";
-  const state = str(b.state, 2)?.toUpperCase() ?? null;
-  if (!state || !/^[A-Z]{2}$/.test(state)) errors.state = "Enter the two-letter state code.";
 
   const eventType = oneOf(b.eventType, EVENT_TYPES);
   if (!eventType) errors.eventType = "Choose the type of event.";

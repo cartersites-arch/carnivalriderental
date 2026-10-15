@@ -57,6 +57,19 @@ describe("submitting an event request", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM event_requests").get()).toEqual({ n: 0 });
   });
 
+  it("does not persist an impossible date or state and allows correction with the same request key", () => {
+    const db = freshDb();
+    const valid = briefBody();
+    const invalid = handleCreateRequest(db, { ...valid, dateStart: "2999-99-99", dateEnd: "2999-99-99", state: "TXextra" });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.fields).toMatchObject({ dateStart: expect.any(String), dateEnd: expect.any(String), state: expect.any(String) });
+    expect(invalid.body.statusUrl).toBeUndefined();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_requests").get()).toEqual({ n: 0 });
+    expect(handleCreateRequest(db, valid).status).toBe(201);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_requests").get()).toEqual({ n: 1 });
+    db.close();
+  });
+
   it("never reports success when persistence fails", () => {
     const db = freshDb();
     db.exec("DROP TABLE request_history"); // the insert's transaction will fail

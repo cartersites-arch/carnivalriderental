@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LABELS, label } from "@/lib/requests/options";
+import { validateSchedule } from "@/lib/requests/schedule";
 
 type Ride = { slug: string; name: string };
 type Values = Record<string, string>;
@@ -85,8 +86,8 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
       if (!v.rideSlug && v.rideFlexibility === "this_ride_only") e.rideFlexibility = "Pick a ride, or let us suggest one.";
     }
     if (i === 1) {
-      req("dateStart", "Enter your event date."); req("dateFlexibility", "Choose one."); req("city", "Enter the city.");
-      if (!/^[A-Za-z]{2}$/.test(v.state ?? "")) e.state = "Two-letter state code.";
+      Object.assign(e, validateSchedule(v, new Date().toISOString().slice(0, 10)).errors);
+      req("dateFlexibility", "Choose one."); req("city", "Enter the city.");
       req("eventType", "Choose the event type."); req("expectedAttendance", "Choose one, or “Not sure”.");
     }
     if (i === 2) { req("siteAccess", "Choose one, or “Not sure”."); req("availableSpace", "Choose one, or “Not sure”."); req("power", "Choose one, or “Not sure”."); req("budget", "Choose one, or “Not sure yet”."); }
@@ -169,7 +170,7 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
             <Select name="dateFlexibility" v={v} set={set} err={err} labelText="Date flexibility" />
             <Select name="eventType" v={v} set={set} err={err} labelText="Event type" />
             <Text name="city" v={v} set={set} err={err} labelText="City" />
-            <Text name="state" v={v} set={(n, x) => set(n, x.toUpperCase().slice(0, 2))} err={err} labelText="State" placeholder="TX" />
+            <Text name="state" v={v} set={(n, x) => set(n, x.toUpperCase())} err={err} labelText="State" placeholder="TX" />
             <Text name="venue" v={v} set={set} err={err} labelText="Venue or address" optional />
             <Text name="operatingHours" v={v} set={set} err={err} labelText="Operating hours" optional placeholder="e.g. 10am–8pm" />
             <Select name="expectedAttendance" v={v} set={set} err={err} labelText="Expected attendance" />

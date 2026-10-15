@@ -115,6 +115,19 @@ try {
   await page.getByLabel("City").fill("Austin");
   await page.getByLabel("State").fill("tx");
   await select("Expected attendance", "2000_10000");
+  await page.getByLabel("State").fill("ZZ");
+  await page.getByLabel("Last day").fill("2000-01-01");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("event form refuses unknown states and reversed date ranges", await page.getByText("Enter a valid two-letter US state code or DC.", { exact: true }).isVisible() && await page.getByText("The end date must be on or after the start date.", { exact: true }).isVisible());
+  await page.getByLabel("State").fill("TXextra");
+  await page.getByLabel("Last day").fill("");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("event form never truncates an invalid state into a valid code", await page.getByLabel("State").inputValue() === "TXEXTRA" && await page.getByText("Enter a valid two-letter US state code or DC.", { exact: true }).isVisible());
+  await page.getByLabel("State").fill("tx");
+  await page.getByLabel("Event date (or first day)").fill("2000-01-01");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("event form refuses past event dates", await page.getByText("The event date is in the past.", { exact: true }).isVisible());
+  await page.getByLabel("Event date (or first day)").fill(future);
   await page.getByRole("button", { name: "Continue" }).click();
   await select("Site access for trucks", "not_sure");
   await select("Space available for the ride", "not_sure");
@@ -154,6 +167,14 @@ try {
     budget: "not_sure", siteAccess: "not_sure", availableSpace: "not_sure", power: "not_sure",
     contactName: "Dup Test", contactEmail: "dup@example.com",
   };
+  for (const invalid of [
+    { dateStart: "2999-99-99", dateEnd: "2999-99-99", state: "ZZ" },
+    { dateStart: future + "extra", state: "TXextra" },
+  ]) {
+    const result = await fetch(BASE + "/api/requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...brief, ...invalid }) });
+    const body = await result.json();
+    check(`request API rejects invalid date and state (${invalid.state})`, result.status === 422 && Boolean(body.fields?.dateStart) && Boolean(body.fields?.state) && (!invalid.dateEnd || Boolean(body.fields?.dateEnd)) && !body.statusUrl);
+  }
   const post = () => fetch(BASE + "/api/requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(brief) }).then(async (r) => ({ status: r.status, body: await r.json() }));
   const [d1, d2] = await Promise.all([post(), post()]);
   const d3 = await post();
