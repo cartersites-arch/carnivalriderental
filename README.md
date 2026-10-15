@@ -1,54 +1,56 @@
-# Book a Carnival (working name) — development
+# Carnival Ride Rental
 
-A managed national carnival ride rental marketplace. Customers request rides through **us**; **we** quote, manage the transaction and source fulfilment from carnival operators. See [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md).
+A national ride discovery and operator-access platform. Visitors browse inventory for free;
+Event Access purchases unlock contacts for matching independent operators. Customers arrange
+and pay for the rental directly with the operator. Read [the business model](docs/PROJECT_BRIEF.md).
 
-> **Development only.** Not public, not indexed. Demo data. Payments are a demo adapter — no card details are collected and no money moves. Sharetribe is connected **read-only** (Test environment); transactions are not yet routed through it.
+This fork belongs to **cartersites-arch**; its working and default branch is **main**.
+Changes here do not update `derekbowen/carnivalriderental` or transfer its hosted services.
 
-## Run it
+## Local development
 
-Requires Node ≥ 22.13 (uses the built-in `node:sqlite`).
+Requires Node 22.13 or later. Node 22 is used in CI.
 
-```bash
-npm install
-npm run setup          # creates .env.local with generated dev secrets (never committed)
-npm run db:seed-demo   # optional: fictional demo suppliers for the internal console
-npm run dev            # http://localhost:3000
+```sh
+npm ci
+npm run setup
+npm run dev
 ```
 
-- Customer site: `/`, `/rides`, `/rides/ferris-wheel-rental`, `/request`
-- Customer status page: the link shown after submitting (`/requests/BAC-XXXXXX?t=…`)
-- Internal console: `/internal` — HTTP Basic auth with `INTERNAL_USER` / `INTERNAL_PASSWORD` from `.env.local`
-- Gate report: `npm run content:check`
+Local setup generates development secrets in ignored `.env.local`. Do not copy upstream live
+credentials into a fork. Browse `/`, `/rides`, `/s`, and `/connect`. Event Access requires its
+own configured ledger, catalog and payment integrations; production activation is separate
+from cloning this repository. See `.env.example` and [the access architecture](docs/PAID_ACCESS_ARCHITECTURE.md).
 
-## Tests
+## Verification
 
-```bash
+```sh
+npm run privacy:check
 npm run typecheck
-npm test               # unit/domain tests (vitest)
+npm test
 npm run build
-npm run test:e2e       # Playwright against the production build, isolated DB (data/e2e.sqlite)
+npm run inventory:validate
+npm run pseo:report
+npm run pseo:duplicates
+npx playwright install chromium
+npm run test:e2e
 ```
 
-Playwright uses the preinstalled Chromium at `/opt/pw-browsers/chromium` (override with `CHROMIUM_PATH`).
+Browser tests use Playwright's installed Chromium, or `CHROMIUM_PATH` when explicitly provided.
+They use fictional operators, an isolated SQLite database, fake payments and no email provider.
+CI runs these checks on pull requests and pushes to `main`, without production credentials.
 
-## What works (session one)
+## Private data and deployment
 
-| Area | Status |
-|---|---|
-| Homepage, browse, ride detail, category, city, ride + city pages | Working, server-rendered/SSG from structured content |
-| Multi-step event request with "Not sure" options, review, acknowledgement | Working |
-| Persistence, idempotent submit, success only after commit | Working (SQLite dev store) |
-| Customer status page (fulfilment + payment tracks, quotes, accept quote) | Working (capability link) |
-| Internal console: queue, brief, supplier candidates, supplier cost quotes, versioned customer quotes, commit supplier, demo payment states, confirm booking, margin projection, history | Working |
-| Canonicals, noindex, robots, sitemap gates | Working; sitemap intentionally empty |
-| Sharetribe | **Read-only connected** to "CarnivalRental Test" (Dev also available) (`npm run sharetribe:check`). No writes; transactions still use the dev store. Mapping in `docs/SHARETRIBE_MAPPING.md` |
-| Payments (Stripe) | **Not connected** — demo state adapter only |
-| Email / notifications | Not implemented |
+Import mappings and logs can identify anonymous operators. They are private working files;
+see [imports/README.md](imports/README.md) for backup and restoration requirements and the limits
+of removing previously public files. Keep the opaque Test-to-Live redirects intact.
 
-## Docs
+Email defaults to test mode and redirects mail to the QA inbox. Before accepting live purchases
+on a fork-owned deployment, configure and verify its email provider, `EMAIL_MODE=live`, pass
+delivery and recovery in a fresh browser. Do not change the upstream deployment's settings.
+Outreach still requires separately approved campaigns and the existing safeguards.
 
-- [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md) — business model, entities, rules
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — layers, sources of truth, guarantees
-- [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md) — listing data contract (proposed), Test findings, Console worksheet
-- [`docs/SHARETRIBE_MAPPING.md`](docs/SHARETRIBE_MAPPING.md) — verified Sharetribe facts, recommended mapping, payment options, decisions needed
-- [`docs/HANDOFF.md`](docs/HANDOFF.md) — session log, open decisions, next milestone
+[Launch status](docs/LAUNCH_STATUS.md) records the upstream deployment's history, not proof of
+this fork's deployment or current environment settings. [CLAUDE.md](CLAUDE.md) contains the
+project's development rules; [docs](docs/) contain import, payment, privacy and indexing runbooks.

@@ -10,11 +10,11 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: `http://localhost:${PORT}`,
-    launchOptions: { executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium" },
+    launchOptions: process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
   },
   webServer: {
     // Isolated database with fictional demo suppliers; production build of this app.
-    command: `rm -f data/e2e.sqlite* && tsx scripts/seed-demo.ts && next start -p ${PORT}`,
+    command: `tsx e2e/prepare.ts && tsx scripts/seed-demo.ts && next start -p ${PORT}`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 120_000,

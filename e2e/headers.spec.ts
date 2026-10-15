@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+test("search can use a browser location after permission is granted", async ({ page, context }) => {
+  await context.grantPermissions(["geolocation"]);
+  await context.setGeolocation({ latitude: 39.96, longitude: -83 });
+  await page.goto("/s?type=ferris-wheel");
+  await page.getByRole("button", { name: "Use my exact location" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("near")).toBe("39.96,-83.00");
+  await expect(page.getByTestId("search-heading")).toContainText("your location");
+});
+
 // Security scan 2026-10-15 (docs/SECURITY_SCAN_2026-10-15.md): the headers every response carries, the
 // homepage share image, and the accessibility statement.
 test("security headers on every response, share image and accessibility statement", async ({ request }) => {
@@ -12,6 +21,8 @@ test("security headers on every response, share image and accessibility statemen
     expect(h["content-security-policy"], path).toContain("object-src 'none'");
     expect(h["referrer-policy"], path).toBe("strict-origin-when-cross-origin");
     expect(h["permissions-policy"], path).toContain("camera=()");
+    expect(h["permissions-policy"], path).toContain("microphone=()");
+    expect(h["permissions-policy"], path).toContain("geolocation=(self)");
   }
   const home = await (await request.get("/")).text();
   expect(home).toMatch(/property="og:image" content="[^"]*\/brand\/carnival-ride-rental-logo\.png"/);

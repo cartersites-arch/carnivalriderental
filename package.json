@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
+    "privacy:check": "tsx scripts/check-repository-privacy.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "content:check": "tsx scripts/check-content.ts",

@@ -1,0 +1,37 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_ENV: development
+      PUBLIC_INDEXING: "false"
+      ALLOW_DEMO_CONTENT: "true"
+      SITE_URL: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run privacy:check
+      - run: npm run typecheck
+      - run: npm test -- --maxWorkers=2 --testTimeout=30000
+      - run: npm run build
+      - run: npm run inventory:validate
+      - run: npm run pseo:report
+      - run: npm run pseo:duplicates
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

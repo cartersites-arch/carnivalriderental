@@ -20,3 +20,7 @@ imports/migration/
 imports/company-accounts/carnivalrental/
 imports/listings/carnivalrental/
 imports/photos/carnivalrental/
+
+# All import working data, including Test, can identify anonymous operators.
+/imports/**
+!/imports/README.md
