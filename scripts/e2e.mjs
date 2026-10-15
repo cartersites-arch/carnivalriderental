@@ -127,6 +127,16 @@ try {
   await page.getByLabel("City").fill("Austin");
   await page.getByLabel("State").fill("tx");
   await select("Expected attendance", "2000_10000");
+  // Restore the draft on a direct visit, including fields that have blank defaults.
+  await page.goto(BASE + "/request");
+  check("draft restores the chosen ride", await page.getByLabel("Which ride?").inputValue() === "ferris-wheel-rental");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("draft restores saved city, state and date", await page.getByLabel("City").inputValue() === "Austin" && await page.getByLabel("State").inputValue() === "TX" && await page.getByLabel("Event date (or first day)").inputValue() === future);
+  check("draft restores selected event details", await page.getByLabel("Event type").inputValue() === "festival" && await page.getByLabel("Expected attendance").inputValue() === "2000_10000");
+  await page.reload();
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("restored draft survives another reload", await page.getByLabel("City").inputValue() === "Austin" && await page.getByLabel("Event date (or first day)").inputValue() === future);
+
   await page.getByLabel("State").fill("ZZ");
   await page.getByLabel("Last day").fill("2000-01-01");
   await page.getByRole("button", { name: "Continue" }).click();
@@ -272,6 +282,12 @@ try {
   const finalH1 = await page.locator("h1").innerText();
   check("customer status reflects operator committed, not booked", /Operator committed/.test(finalH1) && !/Booking confirmed/.test(finalH1), finalH1);
   check("payment status stays separate (no payment taken)", await page.getByText("No payment taken").isVisible());
+  await team.getByLabel("Supplier status").selectOption("contacted");
+  await team.getByLabel("Supplier status").locator("xpath=..").getByRole("button", { name: "Set" }).click();
+  await team.getByText("Withdraw this supplier's event commitments before removing verification.").waitFor();
+  await team.reload();
+  check("committed operator cannot lose verification", await team.getByLabel("Supplier status").inputValue() === "verified");
+
 
   // An operator withdrawing must remove the current commitment from the customer's view.
   await team.getByLabel("Stage for this event").selectOption("declined");

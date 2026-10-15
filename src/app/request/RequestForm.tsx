@@ -54,6 +54,7 @@ function Text({ name, v, set, err, labelText, type = "text", optional, placehold
 export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; initial: Values; browseHref: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const [v, setV] = useState<Values>({ rideFlexibility: initial.rideSlug ? "similar_rides_ok" : "open_to_suggestions", dateFlexibility: "fixed", ...initial });
   const [err, setErr] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -63,13 +64,15 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
-      if (saved) setV((cur) => ({ ...JSON.parse(saved), ...Object.fromEntries(Object.entries(initial).filter(([, x]) => x)), ...cur }));
+      if (saved) setV((cur) => ({ ...cur, ...JSON.parse(saved), ...Object.fromEntries(Object.entries(initial).filter(([, x]) => x)) }));
     } catch {}
+    setDraftLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
+    if (!draftLoaded) return; // Do not overwrite the saved draft before restoring it.
     try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {}
-  }, [v]);
+  }, [v, draftLoaded]);
 
   const set = (n: string, x: string) => {
     setV((cur) => ({ ...cur, [n]: x }));

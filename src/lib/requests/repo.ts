@@ -278,8 +278,20 @@ const SUPPLIER_ORDER = ["researched", "contacted", "verified"] as const;
 /** Suppliers move researched → contacted → verified. Verification is a human decision. */
 export function setSupplierStatus(db: DB, supplierId: string, status: SupplierRow["status"]) {
   if (!SUPPLIER_ORDER.includes(status)) throw new RuleError("Unknown supplier status.", "bad_status", 400);
-  const r = db.prepare("UPDATE suppliers SET status = ?, updated_at = ? WHERE id = ?").run(status, now(), supplierId);
-  if (r.changes === 0) throw new RuleError("Supplier not found.", "not_found", 404);
+  return tx(db, () => {
+    // Verification applies to every event using this supplier. Release their
+    // commitments first so no customer is left with an unverified operator.
+    if (status !== "verified" && db.prepare(
+      "SELECT id FROM request_suppliers WHERE supplier_id = ? AND stage = 'committed' LIMIT 1",
+    ).get(supplierId)) {
+      throw new RuleError(
+        "Withdraw this supplier's event commitments before removing verification.",
+        "supplier_has_commitments",
+      );
+    }
+    const r = db.prepare("UPDATE suppliers SET status = ?, updated_at = ? WHERE id = ?").run(status, now(), supplierId);
+    if (r.changes === 0) throw new RuleError("Supplier not found.", "not_found", 404);
+  });
 }
 
 export type AssignmentRow = {

@@ -5,7 +5,7 @@ import { catalog } from "@/lib/catalog";
 import { validateEventRequest } from "./input";
 import { createEventRequest, acceptQuote, getRequest, RuleError } from "./repo";
 import { findForCustomer, toPublicRequest } from "./public";
-import { tokenFor } from "./token";
+import { requestTokenSigner } from "./token";
 import { paths } from "@/lib/urls";
 
 export type HandlerResult = { status: number; body: Record<string, unknown> };
@@ -16,8 +16,9 @@ export function handleCreateRequest(db: DB, body: unknown): HandlerResult {
   const parsed = validateEventRequest(body, { today: today(), rideExists: (s) => Boolean(catalog.ride(s)) });
   if (!parsed.ok) return { status: 422, body: { error: "validation", fields: parsed.errors } };
   try {
+    const signToken = requestTokenSigner(); // Fail before saving if the status link cannot be issued.
     const { request, created } = createEventRequest(db, parsed.value);
-    const token = tokenFor(request.id);
+    const token = signToken(request.id);
     // Success is reported only after the row is committed; the client shows
     // a confirmation only for this response, and the confirmation page itself
     // re-reads the stored request.

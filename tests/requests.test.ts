@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { openDb } from "@/lib/db";
 import { handleAcceptQuote, handleCreateRequest, handleGetPublic } from "@/lib/requests/handlers";
 import {
@@ -25,9 +25,30 @@ beforeAll(() => {
   process.env.REQUEST_TOKEN_SECRET = "test-secret-test-secret-test-secret-123";
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 const tokenFrom = (statusUrl: string) => new URL(statusUrl, "http://x").searchParams.get("t")!;
 
 describe("submitting an event request", () => {
+  it.each(["", "too-short"])("does not save without a usable production status-link secret (%s)", (secret) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("REQUEST_TOKEN_SECRET", secret);
+    const db = freshDb();
+    const body = briefBody();
+    const failed = handleCreateRequest(db, body);
+    expect(failed.status).toBe(503);
+    expect(failed.body.statusUrl).toBeUndefined();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_requests").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM request_history").get()).toEqual({ n: 0 });
+    vi.stubEnv("REQUEST_TOKEN_SECRET", "restored-production-secret-restored-secret-1234");
+    const saved = handleCreateRequest(db, body);
+    expect(saved.status).toBe(201);
+    expect(handleGetPublic(db, saved.body.reference as string, tokenFrom(saved.body.statusUrl as string)).status).toBe(200);
+    expect(handleCreateRequest(db, body).status).toBe(200);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_requests").get()).toEqual({ n: 1 });
+    db.close();
+  });
+
   it("persists the request and it survives reopening the database (reload)", () => {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bac-")), "t.sqlite");
     const db1 = openDb(file);
@@ -196,6 +217,35 @@ describe("customers never see internal procurement data", () => {
 });
 
 describe("supply and confirmation guards", () => {
+  it.each(["researched", "contacted"] as const)("blocks removing verification to %s while committed", (status) => {
+    const { db, r, supplier, a, reference, token } = committedRequest();
+    expect(() => setSupplierStatus(db, supplier.id, status)).toThrow(/Withdraw.*commitments/);
+    expect(assignments(db, r.id)[0].supplier_status).toBe("verified");
+    expect((handleGetPublic(db, reference, token).body.request as ReturnType<typeof toPublicRequest>).fulfillment.status).toBe("supplier_committed");
+    expect(() => setSupplierStatus(db, supplier.id, "verified")).not.toThrow();
+    setAssignmentStage(db, a.id, "declined", "team:test");
+    setSupplierStatus(db, supplier.id, status);
+    expect(assignments(db, r.id)[0].supplier_status).toBe(status);
+    expect(getRequestByReference(db, reference)!.fulfillment_status).toBe("quote_accepted");
+    db.close();
+  });
+
+  it("checks all of a supplier's events before allowing verification removal", () => {
+    const { db, r, supplier, a } = committedRequest();
+    const second = handleCreateRequest(db, briefBody());
+    const other = getRequestByReference(db, second.body.reference as string)!;
+    addSupplierToRequest(db, other.id, supplier.id, "team:test");
+    const otherAssignment = assignments(db, other.id)[0];
+    recordSupplierQuote(db, otherAssignment.id, { supplierQuoteCents: 100 }, "team:test");
+    setAssignmentStage(db, otherAssignment.id, "committed", "team:test");
+    setAssignmentStage(db, a.id, "declined", "team:test");
+    expect(() => setSupplierStatus(db, supplier.id, "contacted")).toThrow(/Withdraw.*commitments/);
+    expect(assignments(db, r.id)[0].supplier_status).toBe("verified");
+    setAssignmentStage(db, otherAssignment.id, "declined", "team:test");
+    expect(() => setSupplierStatus(db, supplier.id, "contacted")).not.toThrow();
+    db.close();
+  });
+
   it("a researched (unverified) supplier cannot be committed", () => {
     const { db, a } = sourcedRequest();
     recordSupplierQuote(db, a.id, { supplierQuoteCents: 1_000_000 }, "team:test");

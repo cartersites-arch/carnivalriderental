@@ -28,8 +28,14 @@ function secret(): string {
   return devSecret;
 }
 
+/** Resolve configuration before a save, and keep that key for its response. */
+export function requestTokenSigner(): (requestId: string) => string {
+  const key = secret();
+  return (requestId) => crypto.createHmac("sha256", key).update(`request:${requestId}`).digest("base64url");
+}
+
 export function tokenFor(requestId: string): string {
-  return crypto.createHmac("sha256", secret()).update(`request:${requestId}`).digest("base64url");
+  return requestTokenSigner()(requestId);
 }
 
 export function tokenMatches(requestId: string, token: unknown): boolean {

@@ -22,6 +22,8 @@ npm run dev                     # http://127.0.0.1:3000
 
 The development database is `.data/dev.sqlite` (gitignored). Delete it to start fresh.
 
+Before running a production build with `npm start`, configure `REQUEST_TOKEN_SECRET` with a random value of at least 32 characters. Keep it stable across restarts so existing customer status links keep working. This is a local application secret, not an API key; development generates its own automatically.
+
 ## Checks
 
 ```bash
