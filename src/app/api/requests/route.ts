@@ -1,22 +1,28 @@
 import { getDb } from "@/lib/db";
 import { handleCreateRequest } from "@/lib/requests/handlers";
+import { readRequestBody, RequestBodyError, takeRequestSlot } from "@/lib/requests/protection";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  let body: unknown;
+  const headers = { "Cache-Control": "no-store" };
   try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "bad_json" }, { status: 400 });
-  }
-  let db;
-  try {
-    db = getDb();
+    const db = getDb();
+    const retryAfter = takeRequestSlot(db);
+    if (retryAfter) {
+      void req.body?.cancel().catch(() => {});
+      return Response.json({ error: "rate_limited", message: `Too many requests right now. Wait ${retryAfter} seconds before checking again.` }, {
+        status: 429, headers: { ...headers, "Retry-After": String(retryAfter) },
+      });
+    }
+    const body = await readRequestBody(req);
+    const r = handleCreateRequest(db, body);
+    return Response.json(r.body, { status: r.status, headers });
   } catch (e) {
-    console.error("[requests] database unavailable", e instanceof Error ? e.message : e);
-    return Response.json({ error: "not_saved", message: "Your request was not saved. Please try again." }, { status: 503 });
+    if (e instanceof RequestBodyError) {
+      return Response.json({ error: e.status === 413 ? "request_too_large" : "bad_json" }, { status: e.status, headers });
+    }
+    console.error("[requests] unavailable", e instanceof Error ? e.message : e);
+    return Response.json({ error: "not_saved", message: "Your request was not saved. Please try again." }, { status: 503, headers });
   }
-  const r = handleCreateRequest(db, body);
-  return Response.json(r.body, { status: r.status, headers: { "Cache-Control": "no-store" } });
 }

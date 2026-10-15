@@ -58,3 +58,9 @@ Tailwind 4 requires Safari 16.4+, Chrome 111+, or Firefox 128+. The existing the
 ## Next small milestone
 
 Connect a Sharetribe **test** marketplace and prove the seller-of-record mapping end to end: one company-owned provider account (Stripe test mode), one Ferris wheel listing on a regular price-negotiation listing type, and a test customer accepting an offer — before writing any payment UI. See open questions in ARCHITECTURE.md.
+
+## Public request protection
+
+The public submission endpoint accepts at most 32 KiB of JSON, enforced while reading the body even when Content-Length is absent or incorrect. It allows 60 POST attempts per minute across all visitors sharing the SQLite database, returning HTTP 429 with Retry-After when full. This database-wide safety cap survives process restarts and does not trust forwarding headers. Separate databases have separate budgets; a larger or distributed deployment should add gateway-level client limits and bot protection.
+
+When a submission response is lost, the browser keeps the original brief and request key in session storage. “Check request status” safely retries that same submission and recovers its existing status link without creating another request. Until the result is known, editing is disabled. Browser storage must remain available to preserve recovery across reloads.

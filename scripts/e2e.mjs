@@ -180,8 +180,21 @@ try {
   check("a failed save shows an error and no confirmation", (await failAlert.isVisible()) && !page.url().includes("/requests/"));
   await page.unroute("**/api/requests");
 
-  // Real submission.
-  await page.getByRole("button", { name: "Submit request" }).click();
+  // The server saves, but the browser loses the response. Recover the same brief after reload.
+  await page.route("**/api/requests", async (route) => {
+    const saved = await route.fetch();
+    check("submission is saved before its response is lost", saved.status() === 201);
+    await route.abort();
+  });
+  await page.getByRole("button", { name: "Check request status" }).click();
+  await page.getByRole("alert").filter({ hasText: "couldn't confirm" }).waitFor();
+  check("lost response is described as uncertain, not unsaved", await page.getByRole("alert").filter({ hasText: "couldn't confirm" }).isVisible());
+  check("uncertain submission cannot be edited into a conflicting retry", await page.getByRole("button", { name: "Back", exact: true }).isDisabled());
+  await page.unroute("**/api/requests");
+  await page.reload();
+  await page.getByText("Review your request").waitFor();
+  check("uncertain submission returns directly to its saved review", await page.getByText("Review your request").isVisible());
+  await page.getByRole("button", { name: "Check request status" }).click();
   await page.waitForURL(/\/requests\/BAC-[A-Z0-9]{6}\?t=.+&submitted=1/);
   check("confirmation says it is not a booking", await page.getByText("Request received — this is not a booking yet").isVisible());
   const statusUrl = page.url().replace("&submitted=1", "");
@@ -317,6 +330,14 @@ try {
   await team.getByText("No manual changes available from here.").waitFor();
   await page.reload();
   check("closed request does not promise a future confirmation", await page.locator("h1").innerText() === "Request closed" && await page.getByText(/Your booking is not confirmed yet/).count() === 0);
+
+  // Enforce limits through the actual HTTP route, after the customer journey.
+  const oversized = await fetch(BASE + "/api/requests", { method: "POST", body: "x".repeat(32769) });
+  check("oversized public requests are rejected", oversized.status === 413);
+  const flood = await Promise.all(Array.from({ length: 65 }, (_, i) => fetch(BASE + "/api/requests", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${i}` }, body: "{}" })));
+  check("public request rate limit survives changing claimed IP addresses", flood.some((r) => r.status === 429 && Number(r.headers.get("Retry-After")) > 0));
+  const afterFlood = await (await fetch(BASE + "/api/internal/requests", { headers: { authorization: auth } })).json();
+  check("failed and excessive requests create no extra rows", afterFlood.requests.length === 2);
 
   check("no browser page errors", pageErrors.length === 0, pageErrors.join(" | "));
   await browser.close();

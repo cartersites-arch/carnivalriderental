@@ -12,6 +12,8 @@ type Errors = Record<string, string>;
 const STEPS = ["Ride & flexibility", "Event details", "Site & budget", "Contact", "Review"] as const;
 const DRAFT_KEY = "bac:request-draft";
 const IDEMPOTENCY_KEY = "bac:request-key";
+const PENDING_KEY = "bac:pending-request";
+type PendingRequest = { key: string; values: Values };
 
 const STEP_FIELDS: string[][] = [
   ["rideSlug", "rideFlexibility"],
@@ -59,12 +61,23 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
   const [err, setErr] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingRequest | null>(null);
 
   // Restore an unsent draft (per-browser convenience only).
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
       if (saved) setV((cur) => ({ ...cur, ...JSON.parse(saved), ...Object.fromEntries(Object.entries(initial).filter(([, x]) => x)) }));
+    } catch {}
+    try {
+      const stored = sessionStorage.getItem(PENDING_KEY);
+      const attempt = stored ? JSON.parse(stored) : null;
+      if (attempt && typeof attempt.key === "string" && /^[A-Za-z0-9_-]{16,80}$/.test(attempt.key) && attempt.values && typeof attempt.values === "object" && Object.values(attempt.values).every((x) => typeof x === "string")) {
+        setPending(attempt);
+        setV(attempt.values);
+        setStep(4);
+        setFailure("We couldn't confirm whether your request was saved. Check its status before starting another request.");
+      }
     } catch {}
     setDraftLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,34 +120,43 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
   async function submit() {
     setSubmitting(true);
     setFailure(null);
-    // The same key is reused for every retry of this draft, so a repeated or
-    // double-clicked submission cannot create a second request.
+    // Keep the original brief as well as its key until the outcome is known.
     let key = "";
     try { key = sessionStorage.getItem(IDEMPOTENCY_KEY) || ""; } catch {}
     if (!key) { key = newKey(); try { sessionStorage.setItem(IDEMPOTENCY_KEY, key); } catch {} }
+    const attempt = pending ?? { key, values: { ...v } };
+    setPending(attempt);
+    try { sessionStorage.setItem(PENDING_KEY, JSON.stringify(attempt)); } catch {}
     try {
       const res = await fetch("/api/requests", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...v, rideSlug: v.rideSlug || null, idempotencyKey: key }),
+        body: JSON.stringify({ ...attempt.values, rideSlug: attempt.values.rideSlug || null, idempotencyKey: attempt.key }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.status === 201 || res.status === 200) {
         if (typeof body.statusUrl !== "string") throw new Error("missing status link");
-        try { sessionStorage.removeItem(DRAFT_KEY); sessionStorage.removeItem(IDEMPOTENCY_KEY); } catch {}
+        try { sessionStorage.removeItem(DRAFT_KEY); sessionStorage.removeItem(IDEMPOTENCY_KEY); sessionStorage.removeItem(PENDING_KEY); } catch {}
         router.push(`${body.statusUrl}&submitted=1`);
         return;
       }
       if (res.status === 422 && body.fields) {
+        setPending(null);
+        try { sessionStorage.removeItem(PENDING_KEY); } catch {}
         setErr(body.fields);
         const first = STEP_FIELDS.findIndex((fs) => fs.some((f) => body.fields[f]));
         if (first >= 0) setStep(first);
         setFailure("Some details need fixing before we can save your request.");
+      } else if (res.status === 413) {
+        setPending(null);
+        try { sessionStorage.removeItem(PENDING_KEY); } catch {}
+        setFailure("Your request is too large. Shorten the details and try again.");
+        setStep(2);
       } else {
-        setFailure(body.message || "Your request was not saved. Please try again.");
+        setFailure(body.message || "We couldn't confirm whether your request was saved. Check its status before starting another request.");
       }
     } catch {
-      setFailure("Your request was not saved — we couldn't reach the server. Please try again.");
+      setFailure("We couldn't confirm whether your request was saved. Check its status before starting another request.");
     } finally {
       setSubmitting(false);
     }
@@ -234,14 +256,14 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
         {failure ? <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{failure}</p> : null}
 
         <div className="mt-8 flex items-center justify-between">
-          <button type="button" className="btn-secondary" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0 || submitting}>
+          <button type="button" className="btn-secondary" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0 || submitting || Boolean(pending)}>
             Back
           </button>
           {step < 4 ? (
             <button type="button" className="btn-primary" onClick={next}>Continue</button>
           ) : (
             <button type="button" className="btn-primary" onClick={submit} disabled={submitting}>
-              {submitting ? "Sending…" : "Submit request"}
+              {submitting ? "Sending…" : pending ? "Check request status" : "Submit request"}
             </button>
           )}
         </div>

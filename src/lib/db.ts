@@ -91,6 +91,11 @@ const MIGRATIONS: string[] = [
      created_at TEXT NOT NULL,
      UNIQUE (request_id, version)
    )`,
+  `CREATE TABLE public_request_limit (
+     id INTEGER PRIMARY KEY CHECK (id = 1),
+     window_started INTEGER NOT NULL,
+     hits INTEGER NOT NULL
+   )`,
 ];
 
 export type DB = DatabaseSync;
