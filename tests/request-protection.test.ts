@@ -8,6 +8,7 @@ import { MAX_REQUEST_BYTES, REQUESTS_PER_MINUTE, readRequestBody, takeRequestSlo
 const source = vi.hoisted(() => ({ db: null as ReturnType<typeof import("@/lib/db")["openDb"]> | null }));
 vi.mock("@/lib/db", async (original) => ({ ...await original<typeof import("@/lib/db")>(), getDb: () => source.db! }));
 import { POST } from "@/app/api/requests/route";
+import { POST as ACCEPT } from "@/app/api/requests/[reference]/accept-quote/route";
 afterEach(() => { source.db?.close(); source.db = null; vi.unstubAllEnvs(); });
 const request = (body: string, headers: Record<string, string> = {}) => new Request("http://localhost/api/requests", { method: "POST", body, headers });
 
@@ -66,4 +67,17 @@ it("returns HTTP errors without saving requests or trusting spoofed IP headers",
   expect(limited.headers.get("Cache-Control")).toBe("no-store");
   expect((await POST(request("{}", { "x-forwarded-for": "198.51.100.43" }))).status).toBe(429);
   expect(source.db.prepare("SELECT COUNT(*) AS n FROM event_requests").get()).toEqual({ n: 0 });
+});
+
+it("protects quote acceptance with bounded parsing and the shared rate budget", async () => {
+  source.db = freshDb();
+  const ctx = { params: Promise.resolve({ reference: "BAC-ABC234" }) };
+  expect((await ACCEPT(request("x".repeat(MAX_REQUEST_BYTES + 1)), ctx)).status).toBe(413);
+  expect((await ACCEPT(request("{"), ctx)).status).toBe(400);
+  for (let i = 2; i < REQUESTS_PER_MINUTE; i++) takeRequestSlot(source.db);
+  const limited = await ACCEPT(request("{}", { "x-forwarded-for": "198.51.100.99" }), ctx);
+  expect(limited.status).toBe(429);
+  expect(Number(limited.headers.get("Retry-After"))).toBeGreaterThan(0);
+  expect((await POST(request("{}"))).status).toBe(429);
+  expect(source.db.prepare("SELECT COUNT(*) AS n FROM customer_quotes").get()).toEqual({ n: 0 });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   addSupplier,
   addSupplierQuote,
@@ -111,11 +111,13 @@ export function SupplierQuoteForm({ requestId, assignmentId }: { requestId: stri
 
 export function SendQuoteForm({ requestId, revising }: { requestId: string; revising: boolean }) {
   const [s, act, pending] = useActionState(sendQuote.bind(null, requestId), {});
+  const [price, setPrice] = useState("");
+  const [scope, setScope] = useState("");
   return (
     <form action={act} className="mt-4 space-y-2 rounded-lg bg-canvas p-3">
       <div className="text-sm font-medium">{revising ? "Send a revised quote (replaces the open one)" : "Send a quote to the customer"}</div>
-      <input name="price" className="field" placeholder="Customer price $" inputMode="decimal" />
-      <textarea name="scope" className="field min-h-20" placeholder="Scope the customer is accepting: ride, dates, hours, crew, transport, setup/teardown…" />
+      <input name="price" className="field" placeholder="Customer price $" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+      <textarea name="scope" className="field min-h-20" placeholder="Scope the customer is accepting: ride, dates, hours, crew, transport, setup/teardown…" value={scope} onChange={(e) => setScope(e.target.value)} />
       <button className="btn-primary w-full py-2" disabled={pending}>Send quote</button>
       <Result s={s} />
     </form>

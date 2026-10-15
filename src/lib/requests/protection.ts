@@ -1,4 +1,4 @@
-import { tx, type DB } from "@/lib/db";
+import { getDb, tx, type DB } from "@/lib/db";
 
 export const MAX_REQUEST_BYTES = 32 * 1024;
 export const REQUESTS_PER_MINUTE = 60;
@@ -56,4 +56,31 @@ export function takeRequestSlot(db: DB, now = Date.now()): number {
     db.prepare("UPDATE public_request_limit SET hits = hits + 1 WHERE id = 1").run();
     return 0;
   });
+}
+
+/** Apply the same protection to all public request mutations. */
+export function protectedRequestRoute<A extends unknown[]>(
+  fn: (db: DB, body: unknown, ...args: A) => { status: number; body: Record<string, unknown> } | Promise<{ status: number; body: Record<string, unknown> }>,
+) {
+  return async (req: Request, ...args: A): Promise<Response> => {
+    const headers = { "Cache-Control": "no-store" };
+    try {
+      const db = getDb();
+      const retryAfter = takeRequestSlot(db);
+      if (retryAfter) {
+        void req.body?.cancel().catch(() => {});
+        return Response.json({ error: "rate_limited", message: `Too many requests right now. Wait ${retryAfter} seconds before checking again.` }, {
+          status: 429, headers: { ...headers, "Retry-After": String(retryAfter) },
+        });
+      }
+      const result = await fn(db, await readRequestBody(req), ...args);
+      return Response.json(result.body, { status: result.status, headers });
+    } catch (e) {
+      if (e instanceof RequestBodyError) {
+        return Response.json({ error: e.status === 413 ? "request_too_large" : "bad_json" }, { status: e.status, headers });
+      }
+      console.error("[requests] unavailable", e instanceof Error ? e.message : e);
+      return Response.json({ error: "unavailable", message: "We couldn't confirm that change. Please try again." }, { status: 503, headers });
+    }
+  };
 }

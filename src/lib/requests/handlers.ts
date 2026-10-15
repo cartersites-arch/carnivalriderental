@@ -3,7 +3,7 @@
 import type { DB } from "@/lib/db";
 import { catalog } from "@/lib/catalog";
 import { validateEventRequest } from "./input";
-import { createEventRequest, acceptQuote, getRequest, RuleError } from "./repo";
+import { createEventRequest, findExistingRequest, acceptQuote, getRequest, RuleError } from "./repo";
 import { findForCustomer, toPublicRequest } from "./public";
 import { requestTokenSigner } from "./token";
 import { paths } from "@/lib/urls";
@@ -13,11 +13,15 @@ export type HandlerResult = { status: number; body: Record<string, unknown> };
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function handleCreateRequest(db: DB, body: unknown): HandlerResult {
-  const parsed = validateEventRequest(body, { today: today(), rideExists: (s) => Boolean(catalog.ride(s)) });
-  if (!parsed.ok) return { status: 422, body: { error: "validation", fields: parsed.errors } };
   try {
-    const signToken = requestTokenSigner(); // Fail before saving if the status link cannot be issued.
-    const { request, created } = createEventRequest(db, parsed.value);
+    // An exact saved retry must survive date changes or catalog unpublication.
+    // Relax only time/catalog checks for lookup; new requests use today's rules.
+    const replay = validateEventRequest(body, { today: "0001-01-01", rideExists: () => true });
+    const existing = replay.ok ? findExistingRequest(db, replay.value) : undefined;
+    const parsed = existing ? replay : validateEventRequest(body, { today: today(), rideExists: (s) => Boolean(catalog.ride(s)) });
+    if (!parsed.ok) return { status: 422, body: { error: "validation", fields: parsed.errors } };
+    const signToken = requestTokenSigner();
+    const { request, created } = existing ? { request: existing, created: false } : createEventRequest(db, parsed.value);
     const token = signToken(request.id);
     // Success is reported only after the row is committed; the client shows
     // a confirmation only for this response, and the confirmation page itself

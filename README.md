@@ -61,6 +61,8 @@ Connect a Sharetribe **test** marketplace and prove the seller-of-record mapping
 
 ## Public request protection
 
-The public submission endpoint accepts at most 32 KiB of JSON, enforced while reading the body even when Content-Length is absent or incorrect. It allows 60 POST attempts per minute across all visitors sharing the SQLite database, returning HTTP 429 with Retry-After when full. This database-wide safety cap survives process restarts and does not trust forwarding headers. Separate databases have separate budgets; a larger or distributed deployment should add gateway-level client limits and bot protection.
+The public submission and quote-acceptance endpoints accept at most 32 KiB of JSON, enforced while reading the body even when Content-Length is absent or incorrect. They share a budget of 60 POST attempts per minute across all visitors sharing the SQLite database, returning HTTP 429 with Retry-After when full. This database-wide safety cap survives process restarts and does not trust forwarding headers. Separate databases have separate budgets; a larger or distributed deployment should add gateway-level client limits and bot protection.
 
 When a submission response is lost, the browser keeps the original brief and request key in session storage. “Check request status” safely retries that same submission and recovers its existing status link without creating another request. Until the result is known, editing is disabled. Browser storage must remain available to preserve recovery across reloads.
+
+Saved submission recovery compares the full normalized brief and key before applying current date or catalog rules. Quote acceptance is also idempotent: repeating an already accepted decision returns the stored state without another history entry. Prices must be safe whole-cent amounts; dollar form inputs accept up to two decimal places. Internal next-action edits and supplier creation/assignment commit together with their history records.

@@ -17,11 +17,12 @@ export function generateMetadata() {
 export default async function RequestPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
+  const query = (key: string): string => typeof sp[key] === "string" ? sp[key] : "";
   const rides = catalog.rides().map((r) => ({ slug: r.slug, name: r.name }));
-  const ride = sp.ride && rides.some((r) => r.slug === sp.ride) ? sp.ride : "";
+  const ride = rides.some((r) => r.slug === query("ride")) ? query("ride") : "";
   return (
     <main className="container-page py-10">
       <p className="eyebrow">Event request</p>
@@ -32,7 +33,7 @@ export default async function RequestPage({
       </p>
       <RequestForm
         rides={rides}
-        initial={{ rideSlug: ride, city: sp.city ?? "", state: (sp.state ?? "").trim().toUpperCase(), dateStart: sp.date ?? "" }}
+        initial={{ rideSlug: ride, city: query("city"), state: query("state").trim().toUpperCase(), dateStart: query("date") }}
         browseHref={paths.rides()}
       />
     </main>

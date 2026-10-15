@@ -101,6 +101,16 @@ function history(
 
 // ── Customer side ───────────────────────────────────────────────────────────
 
+/** Recovery still requires the complete matching brief, never the key alone. */
+export function findExistingRequest(db: DB, input: EventRequestInput): EventRequestRow | undefined {
+  const existing = db.prepare("SELECT * FROM event_requests WHERE idempotency_key = ?").get(input.idempotencyKey) as
+    | (EventRequestRow & { payload_hash: string }) | undefined;
+  if (existing && existing.payload_hash !== payloadHash(input)) {
+    throw new RuleError("This request key was already used for a different request. Reload the page to start a new one.", "idempotency_conflict");
+  }
+  return existing;
+}
+
 /**
  * Persist a new event request. Idempotent on the client's key: a retry with
  * the same key and the same brief returns the original request; the same key
@@ -112,18 +122,8 @@ export function createEventRequest(
 ): { request: EventRequestRow; created: boolean } {
   const hash = payloadHash(input);
   return tx(db, () => {
-    const existing = db
-      .prepare("SELECT * FROM event_requests WHERE idempotency_key = ?")
-      .get(input.idempotencyKey) as (EventRequestRow & { payload_hash: string }) | undefined;
-    if (existing) {
-      if (existing.payload_hash !== hash) {
-        throw new RuleError(
-          "This request key was already used for a different request. Reload the page to start a new one.",
-          "idempotency_conflict",
-        );
-      }
-      return { request: existing, created: false };
-    }
+    const existing = findExistingRequest(db, input);
+    if (existing) return { request: existing, created: false };
     const row = { id: id(), reference: newReference(), ts: now() };
     db.prepare(
       `INSERT INTO event_requests (
@@ -171,11 +171,12 @@ export function acceptQuote(db: DB, requestId: string, quoteId: string) {
   return tx(db, () => {
     const req = getRequest(db, requestId);
     if (!req) throw new RuleError("Request not found.", "not_found", 404);
-    if (req.fulfillment_status !== "quote_sent")
-      throw new RuleError("There is no quote waiting for your decision.", "no_open_quote");
     const quote = db
       .prepare("SELECT * FROM customer_quotes WHERE id = ? AND request_id = ?")
       .get(quoteId, requestId) as CustomerQuoteRow | undefined;
+    if (quote?.status === "accepted") return; // A repeated decision must not write another history entry.
+    if (req.fulfillment_status !== "quote_sent")
+      throw new RuleError("There is no quote waiting for your decision.", "no_open_quote");
     if (!quote || quote.status !== "sent")
       throw new RuleError("That quote is no longer open. Reload to see the latest.", "quote_not_open");
     const ts = now();
@@ -200,14 +201,16 @@ export function listRequests(db: DB): EventRequestRow[] {
 }
 
 export function setNextAction(db: DB, requestId: string, nextAction: string, actor: string) {
-  const req = getRequest(db, requestId);
-  if (!req) throw new RuleError("Request not found.", "not_found", 404);
-  db.prepare("UPDATE event_requests SET next_action = ?, updated_at = ? WHERE id = ?").run(
-    nextAction.slice(0, 300) || null,
-    now(),
-    requestId,
-  );
-  history(db, requestId, { kind: "note", note: `Next action: ${nextAction}`, actor });
+  return tx(db, () => {
+    const req = getRequest(db, requestId);
+    if (!req) throw new RuleError("Request not found.", "not_found", 404);
+    db.prepare("UPDATE event_requests SET next_action = ?, updated_at = ? WHERE id = ?").run(
+      nextAction.slice(0, 300) || null,
+      now(),
+      requestId,
+    );
+    history(db, requestId, { kind: "note", note: `Next action: ${nextAction}`, actor });
+  });
 }
 
 /** A manual status change, checked against the allowed transitions and guards. */
@@ -317,17 +320,28 @@ function committedAssignment(db: DB, requestId: string): AssignmentRow | undefin
   return assignments(db, requestId).find((a) => a.stage === "committed");
 }
 
-export function addSupplierToRequest(db: DB, requestId: string, supplierId: string, actor: string) {
+function assignSupplier(db: DB, requestId: string, supplierId: string, actor: string) {
   if (!getRequest(db, requestId)) throw new RuleError("Request not found.", "not_found", 404);
-  const ts = now();
-  try {
-    db.prepare(
-      "INSERT INTO request_suppliers (id, request_id, supplier_id, stage, created_at, updated_at) VALUES (?,?,?,'considering',?,?)",
-    ).run(id(), requestId, supplierId, ts, ts);
-  } catch {
+  if (!db.prepare("SELECT id FROM suppliers WHERE id = ?").get(supplierId))
+    throw new RuleError("Supplier not found.", "not_found", 404);
+  if (db.prepare("SELECT id FROM request_suppliers WHERE request_id = ? AND supplier_id = ?").get(requestId, supplierId))
     throw new RuleError("That supplier is already on this request.", "duplicate_assignment");
-  }
+  const ts = now();
+  db.prepare("INSERT INTO request_suppliers (id, request_id, supplier_id, stage, created_at, updated_at) VALUES (?,?,?,'considering',?,?)").run(id(), requestId, supplierId, ts, ts);
   history(db, requestId, { kind: "procurement", note: "Supplier added for consideration", actor });
+}
+
+export function addSupplierToRequest(db: DB, requestId: string, supplierId: string, actor: string) {
+  return tx(db, () => assignSupplier(db, requestId, supplierId, actor));
+}
+
+/** Creating a supplier and attaching it to an event is one atomic change. */
+export function createSupplierForRequest(db: DB, requestId: string, supplier: Parameters<typeof createSupplier>[1], actor: string) {
+  return tx(db, () => {
+    const created = createSupplier(db, supplier);
+    assignSupplier(db, requestId, created.id, actor);
+    return created;
+  });
 }
 
 export function setAssignmentStage(
@@ -402,10 +416,24 @@ export function supplierQuotes(db: DB, assignmentId: string): SupplierQuoteRow[]
 
 const cents = (v: unknown): number | null => {
   if (v === null || v === undefined || v === "") return null;
+  if ((typeof v !== "number" && typeof v !== "string") || (typeof v === "string" && !/^\d+$/.test(v.trim())))
+    throw new RuleError("Amounts must be whole cents, zero or more.", "bad_amount", 400);
   const n = Number(v);
-  if (!Number.isInteger(n) || n < 0) throw new RuleError("Amounts must be whole cents, zero or more.", "bad_amount", 400);
+  if (!Number.isSafeInteger(n) || n < 0) throw new RuleError("Amounts must be whole cents, zero or more.", "bad_amount", 400);
   return n;
 };
+
+/** Parse dollars exactly; never round fractional cents or unsafe values. */
+export function dollarsToCents(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new RuleError("Enter a valid dollar amount.", "bad_amount", 400);
+  const text = value.trim().replace(/^\$\s*/, "");
+  if (!text) return null;
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text))
+    throw new RuleError("Enter dollars with at most two decimal places.", "bad_amount", 400);
+  const [whole, fraction = ""] = text.replace(/,/g, "").split(".");
+  return cents(Number(whole) * 100 + Number(fraction.padEnd(2, "0")));
+}
 
 /** Each recorded supplier quote is a new version; earlier versions are kept. */
 export function recordSupplierQuote(

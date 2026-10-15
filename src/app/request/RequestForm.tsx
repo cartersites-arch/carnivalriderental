@@ -67,7 +67,17 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
-      if (saved) setV((cur) => ({ ...cur, ...JSON.parse(saved), ...Object.fromEntries(Object.entries(initial).filter(([, x]) => x)) }));
+      if (saved) {
+        const draft = JSON.parse(saved);
+        const values = draft.version === 2 ? draft.values : draft;
+        const priorInitial = draft.version === 2 ? draft.initial : initial;
+        if (values && typeof values === "object" && Object.values(values).every((x) => typeof x === "string")) {
+          // Same-link reloads keep customer corrections. A different link may
+          // prefill changed fields without clearing the rest of the draft.
+          const changedPrefill = Object.fromEntries(Object.entries(initial).filter(([key, value]) => value && value !== priorInitial?.[key]));
+          setV((cur) => ({ ...cur, ...values, ...changedPrefill }));
+        }
+      }
     } catch {}
     try {
       const stored = sessionStorage.getItem(PENDING_KEY);
@@ -84,7 +94,7 @@ export function RequestForm({ rides, initial, browseHref }: { rides: Ride[]; ini
   }, []);
   useEffect(() => {
     if (!draftLoaded) return; // Do not overwrite the saved draft before restoring it.
-    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {}
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ version: 2, values: v, initial })); } catch {}
   }, [v, draftLoaded]);
 
   const set = (n: string, x: string) => {

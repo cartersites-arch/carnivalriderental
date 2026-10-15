@@ -10,7 +10,7 @@ export const STEPS = [
   { title: "We source matching operators", body: "Our team contacts established carnival operators who can cover your date and region." },
   { title: "You receive a written quote", body: "One price covering the ride, transport, setup, operating crew and teardown — with the scope spelled out." },
   { title: "Accept the scope and price", body: "Nothing is booked until you accept the quote in writing." },
-  { title: "Booking confirmed when an operator commits", body: "We confirm only once an operator has committed to your event." },
+  { title: "We confirm your booking", body: "We confirm after all booking requirements are met, including operator commitment." },
 ];
 
 export function HowItWorks() {

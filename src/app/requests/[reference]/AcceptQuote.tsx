@@ -19,10 +19,13 @@ export function AcceptQuote({ reference, token, quoteId }: { reference: string; 
         body: JSON.stringify({ token, quoteId }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || "Your decision was not saved. Please try again.");
+      if (!res.ok) {
+        setError(body.message || "We couldn't confirm your decision. Try again to check whether it was saved.");
+        return;
+      }
       router.refresh(); // re-render from the stored state
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Your decision was not saved. Please try again.");
+    } catch {
+      setError("We couldn't confirm your decision. Try again to check whether it was saved.");
     } finally {
       setBusy(false);
     }
@@ -32,7 +35,7 @@ export function AcceptQuote({ reference, token, quoteId }: { reference: string; 
     <div className="mt-5 border-t border-line pt-5">
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1" />
-        <span>I accept this scope and price. I understand the booking is confirmed only once an operator commits.</span>
+        <span>I accept this scope and price. I understand accepting this quote is not a confirmed booking.</span>
       </label>
       <button type="button" className="btn-primary mt-4 w-full" onClick={accept} disabled={!agreed || busy}>
         {busy ? "Saving…" : "Accept quote"}

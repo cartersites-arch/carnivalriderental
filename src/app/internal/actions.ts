@@ -6,7 +6,8 @@ import { getDb } from "@/lib/db";
 import { checkInternalAuth } from "@/lib/internal-auth";
 import {
   addSupplierToRequest,
-  createSupplier,
+  createSupplierForRequest,
+  dollarsToCents,
   recordSupplierQuote,
   RuleError,
   sendCustomerQuote,
@@ -27,14 +28,6 @@ async function actor(): Promise<string> {
   if (!auth.ok) throw new RuleError("Not signed in to the internal area.", "unauthorized", 401);
   return `team:${auth.user}`;
 }
-
-const dollarsToCents = (v: FormDataEntryValue | null): number | null => {
-  const s = String(v ?? "").replace(/[$,\s]/g, "");
-  if (!s) return null;
-  const n = Math.round(Number(s) * 100);
-  if (!Number.isFinite(n) || n < 0) throw new RuleError("Amounts must be numbers of dollars.", "bad_amount", 400);
-  return n;
-};
 
 async function run(requestId: string, fn: (who: string) => void, ok: string): Promise<ActionState> {
   try {
@@ -62,10 +55,11 @@ export async function updateNextAction(requestId: string, _p: ActionState, fd: F
 export async function addSupplier(requestId: string, _p: ActionState, fd: FormData): Promise<ActionState> {
   return run(requestId, (who) => {
     const db = getDb();
-    let supplierId = String(fd.get("supplierId") ?? "");
+    const supplierId = String(fd.get("supplierId") ?? "");
     const newName = String(fd.get("newName") ?? "").trim();
     if (!supplierId && newName) {
-      supplierId = createSupplier(db, { name: newName, region: String(fd.get("region") ?? "") || null, contact: String(fd.get("contact") ?? "") || null }).id;
+      createSupplierForRequest(db, requestId, { name: newName, region: String(fd.get("region") ?? "") || null, contact: String(fd.get("contact") ?? "") || null }, who);
+      return;
     }
     if (!supplierId) throw new RuleError("Choose a supplier or enter a new one.", "no_supplier", 400);
     addSupplierToRequest(db, requestId, supplierId, who);

@@ -103,6 +103,24 @@ try {
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
 
+  check("repeated state query parameters do not crash", (await fetch(BASE + "/request?state=TX&state=OH")).status === 200);
+  await page.goto(BASE + "/request?state=TX&state=OH");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("ambiguous state parameters require a corrected value", await page.getByLabel("State").inputValue() === "");
+  await page.goto(BASE + `/request?city=Austin&state=TX&date=${future}`);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("City").fill("Dallas");
+  await page.reload();
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("reload preserves corrections to link-prefilled details", await page.getByLabel("City").inputValue() === "Dallas" && await page.getByLabel("Event date (or first day)").inputValue() === future);
+  await page.goto(BASE + "/request?city=Houston&state=TX");
+  await page.getByRole("button", { name: "Continue" }).click();
+  check("a new link can prefill changed fields while retaining other draft details", await page.getByLabel("City").inputValue() === "Houston" && await page.getByLabel("Event date (or first day)").inputValue() === future);
+  await page.evaluate(() => sessionStorage.clear());
+  const quoteOversized = await fetch(BASE + "/api/requests/BAC-ABC234/accept-quote", { method: "POST", body: "x".repeat(32769) });
+  check("quote acceptance rejects oversized unauthenticated bodies", quoteOversized.status === 413);
+  const marketing = await (await fetch(BASE + "/")).text();
+  check("marketing avoids promising booking confirmation on commitment alone", !marketing.includes("Booking confirmed when an operator commits"));
   await page.goto(BASE + "/request?state=TXextra");
   await page.getByRole("button", { name: "Continue" }).click();
   check("state from a link is preserved rather than truncated", await page.getByLabel("State").inputValue() === "TXEXTRA");
@@ -268,6 +286,12 @@ try {
 
   await team.getByPlaceholder("Customer price $").fill("22000");
   await team.getByPlaceholder(/Scope the customer is accepting/).fill("Ferris wheel with operating crew, 10am–8pm, transport, setup and teardown.");
+  await team.getByPlaceholder("Customer price $").fill("100000000000000");
+  await team.getByRole("button", { name: "Send quote" }).click();
+  await team.getByRole("alert").filter({ hasText: "Amounts must be whole cents" }).waitFor();
+  check("an unsafe price is rejected by the internal form", true);
+  check("price validation preserves the written quote scope", (await team.getByPlaceholder(/Scope the customer is accepting/).inputValue()).includes("Ferris wheel with operating crew"));
+  await team.getByPlaceholder("Customer price $").fill("22000");
   await team.getByRole("button", { name: "Send quote" }).click();
   await team.getByText("Quote sent to the customer.").waitFor();
   const detail = await team.content();
@@ -285,9 +309,21 @@ try {
     !/Example Amusements|\$12,000|\$1,500|contribution|supplier/i.test(custText) && !/Example Amusements|1200000|150000/.test(custHtml),
   );
 
+  check("consent distinguishes quote acceptance from a confirmed booking", await page.getByText("I accept this scope and price. I understand accepting this quote is not a confirmed booking.", { exact: true }).isVisible());
+  await page.route("**/accept-quote", async (route) => {
+    const saved = await route.fetch();
+    check("quote decision is saved before losing its response", saved.status() === 200);
+    await route.abort();
+  });
   await page.getByLabel(/I accept this scope and price/).check();
   await page.getByRole("button", { name: "Accept quote" }).click();
+  await page.getByRole("alert").filter({ hasText: "couldn't confirm your decision" }).waitFor();
+  check("lost quote response is described as uncertain", true);
+  await page.unroute("**/accept-quote");
+  await page.getByRole("button", { name: "Accept quote" }).click();
   await page.getByText("Accepted quote").waitFor();
+  const acceptedDetail = await (await fetch(BASE + `/api/internal/requests/${requestId}`, { headers: { authorization: auth } })).json();
+  check("quote retries do not repeat acceptance history", acceptedDetail.history.filter((h) => h.to_status === "quote_accepted").length === 1);
   check("accepted quote is labelled as accepted", await page.getByText("Accepted quote").isVisible());
   check("accepting a quote does not promise confirmation", await page.getByText(/Your booking is not confirmed yet/).isVisible());
 
@@ -304,6 +340,9 @@ try {
   await page.reload();
   const finalH1 = await page.locator("h1").innerText();
   check("customer status reflects operator committed, not booked", /Operator committed/.test(finalH1) && !/Booking confirmed/.test(finalH1), finalH1);
+  const acceptedAgain = await fetch(BASE + `/api/requests/${reference}/accept-quote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: new URL(statusUrl).searchParams.get("t"), quoteId: JSON.parse(pub).request.quote.id }) });
+  const repeatedDecision = await acceptedAgain.json();
+  check("quote retry preserves later operator commitment", acceptedAgain.status === 200 && repeatedDecision.request.fulfillment.status === "supplier_committed");
   check("payment status stays separate (no payment taken)", await page.getByText("No payment taken").isVisible());
   check("operator commitment does not promise confirmation", await page.getByText(/Your booking is not confirmed yet/).isVisible());
   await team.getByLabel("Supplier status").selectOption("contacted");
@@ -339,6 +378,8 @@ try {
   const afterFlood = await (await fetch(BASE + "/api/internal/requests", { headers: { authorization: auth } })).json();
   check("failed and excessive requests create no extra rows", afterFlood.requests.length === 2);
 
+  const blockedQuote = await fetch(BASE + `/api/requests/${reference}/accept-quote`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.250" }, body: "{}" });
+  check("quote acceptance shares the rate limit with request creation", blockedQuote.status === 429 && Number(blockedQuote.headers.get("Retry-After")) > 0);
   check("no browser page errors", pageErrors.length === 0, pageErrors.join(" | "));
   await browser.close();
 } catch (e) {
