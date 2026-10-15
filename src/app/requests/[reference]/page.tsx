@@ -25,8 +25,13 @@ export default async function RequestStatus({ params, searchParams }: Props) {
   if (!row) notFound();
   const r = toPublicRequest(db, row);
   const ride = r.brief.rideSlug ? catalog.ride(r.brief.rideSlug) : undefined;
-  const reached = new Set(r.timeline.map((x) => x.status));
   const cancelled = r.fulfillment.status === "cancelled";
+  // A past commitment can be withdrawn. Progress reflects the current state,
+  // while the timeline retains the history. Closed requests keep their last progress.
+  const progressStatus = cancelled
+    ? r.timeline.filter((x) => x.status !== "cancelled").at(-1)?.status
+    : r.fulfillment.status;
+  const reached = new Set(PROGRESS.slice(0, PROGRESS.indexOf(progressStatus ?? "submitted") + 1));
 
   return (
     <main className="container-page py-10">

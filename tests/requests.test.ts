@@ -106,6 +106,68 @@ function sourcedRequest() {
   return { db, r, supplier, a, token: tokenFrom(res.body.statusUrl as string), reference: r.reference };
 }
 
+function committedRequest() {
+  const ctx = sourcedRequest();
+  const { db, r, a, supplier, reference, token } = ctx;
+  setSupplierStatus(db, supplier.id, "verified");
+  recordSupplierQuote(db, a.id, { supplierQuoteCents: 1_000_000 }, "team:test");
+  setAssignmentStage(db, a.id, "committed", "team:test");
+  transition(db, r.id, "sourcing", "team:test");
+  sendCustomerQuote(db, r.id, { priceCents: 2_000_000, scope: "Accepted event scope" }, "team:test");
+  handleAcceptQuote(db, reference, { token, quoteId: toPublicRequest(db, r).quote!.id });
+  transition(db, r.id, "supplier_committed", "team:test");
+  return ctx;
+}
+
+describe("loss of a committed supplier", () => {
+  it.each(["considering", "contacted", "quoted", "declined"] as const)("returns the customer to operator sourcing when the supplier becomes %s", (stage) => {
+    const { db, r, a, reference, token } = committedRequest();
+    setAssignmentStage(db, a.id, stage, "team:test");
+    const stored = getRequestByReference(db, reference)!;
+    const publicRequest = handleGetPublic(db, reference, token).body.request as ReturnType<typeof toPublicRequest>;
+    expect(publicRequest.fulfillment.status).toBe("quote_accepted");
+    expect(publicRequest.fulfillment.label).toBe("Quote accepted — securing an operator");
+    expect(publicRequest.quote?.status).toBe("accepted");
+    expect(publicRequest.payment.status).toBe("not_started");
+    expect(publicRequest.timeline.slice(-2).map((x) => x.status)).toEqual(["supplier_committed", "quote_accepted"]);
+    expect(stored.next_action).toBe("Secure a replacement operator");
+    expect(JSON.stringify(publicRequest)).not.toContain("Example Amusements");
+    setAssignmentStage(db, a.id, "committed", "team:test");
+    transition(db, r.id, "supplier_committed", "team:test");
+    expect(getRequestByReference(db, r.reference)!.fulfillment_status).toBe("supplier_committed");
+    db.close();
+  });
+
+  it("does not revive a cancelled request when its supplier withdraws", () => {
+    const { db, r, a } = committedRequest();
+    transition(db, r.id, "cancelled", "team:test");
+    setAssignmentStage(db, a.id, "declined", "team:test");
+    expect(getRequestByReference(db, r.reference)!.fulfillment_status).toBe("cancelled");
+    db.close();
+  });
+
+  it("keeps the commitment when a different candidate declines", () => {
+    const { db, r } = committedRequest();
+    const other = createSupplier(db, { name: "Other fixture operator", isFixture: true });
+    addSupplierToRequest(db, r.id, other.id, "team:test");
+    const candidate = assignments(db, r.id).find((a) => a.supplier_id === other.id)!;
+    setAssignmentStage(db, candidate.id, "declined", "team:test");
+    expect(getRequestByReference(db, r.reference)!.fulfillment_status).toBe("supplier_committed");
+    db.close();
+  });
+
+  it("rolls back both statuses when recording the customer status change fails", () => {
+    const { db, r, a } = committedRequest();
+    db.exec(`CREATE TRIGGER fail_replacement_status BEFORE INSERT ON request_history
+      WHEN NEW.kind = 'status' AND NEW.to_status = 'quote_accepted'
+      BEGIN SELECT RAISE(ABORT, 'simulated history write failure'); END`);
+    expect(() => setAssignmentStage(db, a.id, "declined", "team:test")).toThrow(/simulated/);
+    expect(assignments(db, r.id)[0].stage).toBe("committed");
+    expect(getRequestByReference(db, r.reference)!.fulfillment_status).toBe("supplier_committed");
+    db.close();
+  });
+});
+
 describe("customers never see internal procurement data", () => {
   it("the public projection has no supplier, cost or margin fields", () => {
     const { db, r, a } = sourcedRequest();

@@ -344,6 +344,18 @@ export function setAssignmentStage(
         throw new RuleError("Another supplier is already committed for this event.", "already_committed");
     }
     db.prepare("UPDATE request_suppliers SET stage = ?, updated_at = ? WHERE id = ?").run(stage, now(), assignmentId);
+    // The customer's commitment status must follow the actual supplier commitment.
+    // Keep their accepted quote and payment state while the team sources a replacement.
+    const request = getRequest(db, a.request_id)!;
+    if (request.fulfillment_status === "supplier_committed" && !committedAssignment(db, a.request_id)) {
+      db.prepare("UPDATE event_requests SET fulfillment_status = 'quote_accepted', next_action = ?, updated_at = ? WHERE id = ?").run(
+        "Secure a replacement operator", now(), a.request_id,
+      );
+      history(db, a.request_id, {
+        kind: "status", from: "supplier_committed", to: "quote_accepted",
+        note: "Supplier commitment withdrawn; source a replacement operator", actor,
+      });
+    }
     history(db, a.request_id, {
       kind: "procurement",
       note: `${a.supplier_name}: ${a.stage} → ${stage}`,

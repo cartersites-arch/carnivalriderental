@@ -240,6 +240,18 @@ try {
   check("customer status reflects operator committed, not booked", /Operator committed/.test(finalH1) && !/Booking confirmed/.test(finalH1), finalH1);
   check("payment status stays separate (no payment taken)", await page.getByText("No payment taken").isVisible());
 
+  // An operator withdrawing must remove the current commitment from the customer's view.
+  await team.getByLabel("Stage for this event").selectOption("declined");
+  await team.getByLabel("Stage for this event").locator("xpath=..").getByRole("button", { name: "Set" }).click();
+  await team.getByText("Stage updated.").waitFor();
+  await page.reload();
+  check("withdrawn commitment returns the customer to securing an operator", /Quote accepted — securing an operator/.test(await page.locator("h1").innerText()));
+  const commitmentStep = page.locator("ol li").filter({ hasText: "Operator committed — finalizing your booking" });
+  check("withdrawn commitment is no longer marked complete in progress", await commitmentStep.locator("span").last().evaluate((el) => el.classList.contains("text-ink-muted")));
+  check("the accepted customer quote is preserved after operator withdrawal", await page.getByText("Accepted quote", { exact: true }).isVisible());
+  await team.reload();
+  check("the team is prompted to source a replacement", await team.locator('input[name="nextAction"]').inputValue() === "Secure a replacement operator");
+
   check("no browser page errors", pageErrors.length === 0, pageErrors.join(" | "));
   await browser.close();
 } catch (e) {
