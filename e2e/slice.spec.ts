@@ -49,10 +49,24 @@ test("internal console is protected, and status updates reach the customer witho
   await team.locator("select").first().selectOption({ label: "DEMO Operator A (fictional) — verified supplier" });
   await team.getByRole("button", { name: "Add candidate" }).click();
   await expect(team.getByText("Stage for this event: candidate")).toBeVisible();
+  await team.getByLabel("Supplier quote $").fill("1e3");
+  await team.getByRole("button", { name: "Record quote" }).click();
+  await expect(team.getByText("Enter a non-negative dollar amount with at most two decimal places.")).toBeVisible();
+  await expect(team.getByText("Stage for this event: candidate")).toBeVisible();
   await team.getByLabel("Supplier quote $").fill("12000");
   await team.getByRole("button", { name: "Record quote" }).click();
   await expect(team.getByText("Stage for this event: quoted")).toBeVisible();
   await expect(team.getByText("Margin before unknown costs")).toBeVisible();
+
+  const scope = team.getByPlaceholder("Scope: ride, operating crew, hours, days, transport, setup/teardown, exclusions, payment terms…");
+  await scope.fill("Retain this scope when the price is invalid");
+  await team.getByPlaceholder("Customer price (USD)").fill("1.005");
+  await team.getByRole("button", { name: "Save draft quote" }).click();
+  await expect(team.getByText("Enter a non-negative dollar amount with at most two decimal places.")).toBeVisible();
+  await expect(scope).toHaveValue("Retain this scope when the price is invalid");
+  await team.getByPlaceholder("Customer price (USD)").fill("22000.29");
+  await team.getByRole("button", { name: "Save draft quote" }).click();
+  await expect(scope).toHaveValue("");
 
   // Confirmation is impossible from here.
   await expect(team.getByRole("button", { name: "Confirm booking" })).toHaveCount(0);

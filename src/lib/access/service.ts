@@ -14,6 +14,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import { US_STATES } from "../taxonomy";
+import { isCalendarDate } from "../calendar";
 import { formatPrice, productForTier, type AccessProduct, rowToProduct } from "./config";
 import { isContactable, revealFields, type OperatorSource, type ContactChannels } from "./contacts";
 import type { AccessDb, Row, Sql } from "./db";
@@ -33,12 +34,12 @@ const STATE_CODES = new Set(US_STATES.map((s) => s.abbr.toUpperCase()));
 /** An optional whole number from the form or the chat. Blank means not given: null, never 0. */
 const optionalCount = (max: number) =>
   z
-    .preprocess((v) => (v === null || (typeof v === "string" && v.trim() === "") ? undefined : v), z.coerce.number().int().min(0).max(max).optional())
+    .preprocess((v) => (v === null || (typeof v === "string" && v.trim() === "") ? undefined : v), z.union([z.number(), z.string().trim().regex(/^\d+$/, "Use a non-negative whole number").transform(Number)]).pipe(z.number().int().min(0).max(max)).optional())
     .transform((v) => v ?? null);
 
 export const eventRequestInput = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
-  eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  eventDate: z.string().refine(isCalendarDate, "Choose a real calendar date"),
   city: z.string().trim().min(1).max(80),
   state: z.string().trim().toUpperCase().refine((s) => STATE_CODES.has(s), "Choose a state"),
   zip: z.string().trim().regex(/^\d{5}$/).optional().or(z.literal("")).transform((v) => v || null),

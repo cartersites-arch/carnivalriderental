@@ -2,6 +2,7 @@ import { ZodError } from "zod";
 import { statusPath } from "./access";
 import { createRequestSchema, todayIso } from "./schema";
 import { DomainError, type RequestService } from "./service";
+import { requestTokenSecret } from "../config";
 
 export interface HttpResult {
   status: number;
@@ -26,7 +27,7 @@ export function errorResult(e: unknown): HttpResult {
   }
   if (e instanceof DomainError) return { status: STATUS_BY_CODE[e.code], body: { ok: false, error: e.code, message: e.message } };
   console.error("[requests] unexpected error", e instanceof Error ? e.message : "unknown");
-  return { status: 500, body: { ok: false, error: "server_error", message: "We could not save your request. Nothing was submitted. Please try again." } };
+  return { status: 500, body: { ok: false, error: "server_error", message: "We couldn't confirm that change. Please try again using the same submission." } };
 }
 
 /**
@@ -36,10 +37,13 @@ export function errorResult(e: unknown): HttpResult {
 export function handleCreateRequest(body: unknown, svc: RequestService, now = new Date()): HttpResult {
   try {
     const input = createRequestSchema.parse(body);
-    if (input.brief.eventDateStart < todayIso(now)) {
+    const existing = svc.findExistingRequest(input);
+    if (!existing && input.brief.eventDateStart < todayIso(now)) {
       return { status: 400, body: { ok: false, error: "validation_failed", issues: [{ path: "brief.eventDateStart", message: "Event date must be in the future" }] } };
     }
-    const { request, created } = svc.createRequest(input);
+    // Validate signing configuration before committing a new request.
+    requestTokenSecret();
+    const { request, created } = existing ? { request: existing, created: false } : svc.createRequest(input);
     return {
       status: created ? 201 : 200,
       body: {
