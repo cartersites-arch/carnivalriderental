@@ -143,7 +143,8 @@ describe("Event Access ledger", () => {
     expect((await db.query(`SELECT * FROM access_unlocks WHERE pass_id = ?`, [pass.id])).length).toBe(5);
     const view = (await passView(db, pass.id))!;
     expect(view.remaining).toBe(0);
-    expect(view.unlocks[0].contact).toEqual(first.unlock.contact);
+    // Several unlocks can share a millisecond; identify the snapshot by operator, not display order.
+    expect(view.unlocks.find(u => u.operatorId === first.unlock.operatorId)?.contact).toEqual(first.unlock.contact);
   });
 
   it("an operator outside the pass's match set can't be unlocked", async () => {

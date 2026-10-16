@@ -34,3 +34,10 @@ No real payment, email or model API call was made. These fixes require no new AP
 Review the targeted patch against that project's current main. Do not replace the project with the older lucid-goodall prototype. Keep its public pages, styles, branding, assets, prices and environment configuration. Run the same checks against the resulting application before any deployment.
 
 This review branch belongs to cartersites-arch/carnivalriderental. Neither main branch nor Derek's repository is modified. The fork's sanitized ancestry is retained so removed operator mappings are not brought back through upstream history.
+
+## Handoff recheck
+
+- The complete targeted patch applies cleanly to Derek's unchanged main at efe22d7 using a temporary local index; no upstream branch was modified. Apply the reviewed PR patch (including its test correction), rather than replacing the repository tree.
+- Project configuration is unchanged: environment templates, site URL and indexing settings, database and catalog selection, payment and email providers, session secrets, deployment settings, product prices and brand configuration retain their existing project values. No .vercel project/account link or real environment file is tracked.
+- Fixed an existing timing-dependent access-ledger test: multiple unlocks may share a timestamp, so compare the saved contact snapshot by operator identity rather than assuming it is the first displayed row. Production ordering and page design are unchanged.
+- The fork review remains a draft. Check its latest GitHub checks before applying or merging; local passing tests alone do not establish that CI passed.
