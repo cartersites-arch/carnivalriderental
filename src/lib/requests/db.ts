@@ -13,6 +13,10 @@ import { databasePath } from "../config";
 export type Db = DatabaseSyncType;
 
 const MIGRATIONS = [
+  // Shared budget for the legacy public request mutations; survives worker restarts.
+  `CREATE TABLE IF NOT EXISTS public_request_limit (
+     id INTEGER PRIMARY KEY CHECK (id = 1), window_started INTEGER NOT NULL, hits INTEGER NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS event_requests (
      id TEXT PRIMARY KEY,
      reference TEXT NOT NULL UNIQUE,

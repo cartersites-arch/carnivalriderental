@@ -112,6 +112,16 @@ export class RequestService {
 
   // ---------- customer-facing ----------
 
+  /** Recover only an exact normalized submission, never by its key alone. */
+  findExistingRequest(input: CreateRequestInput): EventRequest | null {
+    const row = this.db.prepare(`SELECT * FROM event_requests WHERE idempotency_key = ?`).get(input.idempotencyKey) as Row | undefined;
+    if (!row) return null;
+    if (row.payload_hash !== payloadHash(input.brief)) {
+      throw new DomainError("This submission key was already used for a different request", "conflict");
+    }
+    return mapRequest(row);
+  }
+
   /**
    * Idempotent create. The same idempotency key with the same payload returns the
    * existing request (created=false). The same key with a different payload is a conflict.
@@ -154,6 +164,8 @@ export class RequestService {
       const req = this.mustGet(requestId);
       const quote = this.getQuote(quoteId);
       if (!quote || quote.requestId !== requestId) throw new DomainError("Quote not found", "not_found");
+      // A lost response can be retried after fulfilment has advanced; never rewind it.
+      if (quote.status === "accepted") return req;
       if (quote.status !== "sent") throw new DomainError("This quote is no longer open for acceptance", "invalid_state");
       const latest = this.latestSentQuote(requestId);
       if (!latest || latest.id !== quote.id) throw new DomainError("A newer quote replaced this one", "invalid_state");
@@ -312,7 +324,7 @@ export class RequestService {
   }
 
   createQuoteDraft(requestId: string, amountCents: number, scope: string): CustomerQuote {
-    if (!Number.isInteger(amountCents) || amountCents <= 0) throw new DomainError("Amount must be positive", "invalid_state");
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new DomainError("Amount must be positive whole cents within the safe integer range", "invalid_state");
     if (!scope.trim()) throw new DomainError("Scope is required", "invalid_state");
     return this.tx(() => {
       this.mustGet(requestId);
@@ -414,7 +426,7 @@ export class RequestService {
   recordSupplierQuote(q: Omit<SupplierQuote, "id" | "createdAt">): SupplierQuote {
     for (const k of ["supplierPriceCents", "transportCents", "crewCents", "otherCents"] as const) {
       const v = q[k];
-      if (v !== null && (!Number.isInteger(v) || v < 0)) throw new DomainError(`${k} must be a non-negative integer or unknown`, "invalid_state");
+      if (v !== null && (!Number.isSafeInteger(v) || v < 0)) throw new DomainError(`${k} must be non-negative safe whole cents or unknown`, "invalid_state");
     }
     return this.tx(() => {
       const cand = this.db

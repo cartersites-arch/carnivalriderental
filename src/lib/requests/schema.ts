@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isCalendarDate } from "../calendar";
+import { US_STATES } from "../taxonomy";
 
 const optionalText = (max: number) =>
   z
@@ -9,7 +11,7 @@ const optionalText = (max: number) =>
     .nullable()
     .transform((v) => (v ? v : null));
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+const isoDate = z.string().refine(isCalendarDate, "Use a real date in YYYY-MM-DD format");
 
 /** Server-side validation for a submitted event brief. "Not sure" is always allowed for site questions. */
 export const eventBriefSchema = z
@@ -21,7 +23,7 @@ export const eventBriefSchema = z
     dateFlexibility: z.enum(["fixed", "flexible"]),
     operatingHours: optionalText(200),
     city: z.string().trim().min(2).max(80),
-    state: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Use a two-letter state code"),
+    state: z.string().trim().toUpperCase().refine(s => US_STATES.some(state => state.abbr.toUpperCase() === s), "Use a valid US state code"),
     venueName: optionalText(160),
     eventType: z.enum(["corporate", "municipal", "school", "college", "festival", "private", "other"]),
     expectedAttendance: z.enum(["under_500", "500_2000", "2000_10000", "10000_plus", "not_sure"]),

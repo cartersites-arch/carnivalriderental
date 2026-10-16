@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DomainError, type RequestService } from "./service";
 
-const cents = z.number().int().nonnegative().nullable();
+const cents = z.number().int().safe().nonnegative().nullable();
 
 /** Every team action, validated server-side. The UI is a convenience, not the guard. */
 export const internalActionSchema = z.discriminatedUnion("action", [
@@ -17,7 +17,7 @@ export const internalActionSchema = z.discriminatedUnion("action", [
     otherCents: cents,
     notes: z.string().max(2000).nullable().default(null),
   }),
-  z.object({ action: z.literal("create_quote"), amountCents: z.number().int().positive(), scope: z.string().min(1).max(4000) }),
+  z.object({ action: z.literal("create_quote"), amountCents: z.number().int().safe().positive(), scope: z.string().min(1).max(4000) }),
   z.object({ action: z.literal("send_quote"), quoteId: z.string().uuid() }),
   z.object({ action: z.literal("commit_supplier"), candidateId: z.string().uuid(), note: z.string().max(500).nullable().default(null) }),
   z.object({
@@ -39,6 +39,9 @@ export function runInternalAction(svc: RequestService, requestId: string, a: Int
       svc.addCandidate(requestId, a.supplierId, a.unitId, a.notes);
       return;
     case "set_candidate_stage":
+      if (!svc.listCandidates(requestId).some(candidate => candidate.id === a.candidateId)) {
+        throw new DomainError("Candidate does not belong to this request", "not_found");
+      }
       svc.setCandidateStage(a.candidateId, a.stage);
       return;
     case "record_supplier_quote":
